@@ -1,0 +1,196 @@
+---
+title: "GIADA – Developer notes / TODO"
+format: html
+editor: visual
+---
+
+============================================================
+
+This file contains internal notes, ideas, and TODOs.
+
+For collaborators only.
+
+============================================================
+
+## Dataset Esempio
+
+```{r}
+# Pacchetti
+rm(list = ls())
+library(mgcv)
+library(visreg)
+library(itsadug) 
+library(gratia)
+library(dplyr)
+
+load("DB_visualsearchbasic.RData")
+
+head(df)
+
+```
+
+# Panel 1 - GAM - Model Specification
+
+![](images/clipboard-1713107905.png)
+
+## Family
+
+Per ora focus su family = gaussian (default in mgcv, Continua \~ simmetrica )
+
+Ma considerare però eventualmente anche altre family disponibili in mgcv: Gamma (RT \> 0, asimmetrica), inverse.gaussian (RT molto asimmetrica), binomial (Binaria (0/1)), poisson (Conteggi), betar (Proporzioni (0–1)).
+
+```{r}
+formula <- RT ~ s(TDsim) + DDsim+ te(TDsim,order)+ Sex
+mod <- gam(formula, data = df,family = gaussian(link = "identity"))
+summary(mod)
+                                     
+```
+
+## Estimation (metodo selezione parametri smoothing)
+
+```{r}
+formula <- RT ~ s(TDsim)
+
+## Likelihood Based Methods ## Restricted Maximum Likelihood
+mod <- gam(formula, data = df,family = gaussian(), method = "REML"); 
+mod <- gam(formula, data = df, method = "ML"); # per completezza
+mod <- bam(formula, data = df, method = "fREML"); 
+
+## Prediction Error Criteria Methods # Generalized Cross Validation
+mod <- gam(formula, data = df, method = "GCV.Cp");
+summary(mod)
+```
+
+**Scelta:**
+
+**REML**: Default consigliato per uso generale se stai stimando la smoothness ottimale di un modello, descritta come più stabile e meno soggetta all'overfitting (Wood, 2017, p.266–267).
+
+**ML** o **GCV** per confrontare modelli con fixed effects diversi ad esempio, confrontare un modello con s(x) + s(z) contro uno con solo s(x)) (REML no, vedi mgcv::gam.selection)
+
+**bam**() con method = "**fREML**" per dataset molto grandi altrimenti preferire GAM che è derscitto come più robusto e garantisce quasi sempre la convergenza del modello (dipende dalla RAM, ma in ongi caso da considerare a partire da decine di migliaia di righe in su per arrivare fino a 100 milioni di dati, in alcuni casi circa 100 volte più veloce). (Wood, et al., 2015 Generalized additive models for large data sets; Wood 2017 Generalized Additive Models for Gigadata).
+
+# Confidence intervals
+
+![](images/clipboard-3724343311.png)
+
+Per gli **effetti parametrici**: si può fare la tabella con il nome del parametro, la stima del coefficiente, l’errore standard e l’intervallo di confidenza (inferiore e superiore).
+
+Per gli **effetti smooth**, mostrare le **componenti di varianza** stimate associate a ciascun termine smooth con **`gam.vcomp`** (più precisamente l'output da deviazione standard stimata come misura di quanto pesa quella componente: `std.dev = mod$scale / mod$sp`). Fornisce anche **intervalli di confidenza** (se la stima è effettuata tramite ML o REML).\
+
+```{r}
+# valutare cosa fa gam.vcomp 
+mod <- gam(RT ~ s(DDsim)+s(TDsim)+ order+s(Participant, bs="re"), data = df,method = "REML")
+# summary(mod)
+gam.vcomp(mod, conf.lev=.95) 
+# It also provides confidence intervals, if smoothness estimation is by ML or REML.
+# R converte la wiggliness delle funzioni DDsim e TDsim in una metrica di varianza (comparabile agli effetti random).
+
+```
+
+## Model Comparison - Fit Indices
+
+![Mettere di default quelli che escono già come output di base dal il summary: Deviance explained (%), R-sq.(adj) , -REML/-ML/GCV, scale estimate.](images/clipboard-482158946.png)
+
+AIC, BIC, logLik con More Fit Indices.
+
+EDF complessivi forse.
+
+### Output di base
+
+```{r}
+formula <- RT ~ s(TDsim) 
+mod <- gam(formula, data = df, method = "REML"); 
+summary(mod) 
+```
+
+**Deviance explained (%)** proporzione di variabilità dei dati spiegata dal modello GAM. Analogo del R², ottenuto confrontando la deviance del modello con quella del modello nullo (solo intercetta, nessun predittore).
+
+```{r}
+summary(mod)$dev.expl 
+summary(mod)$dev.expl * 100   # percentuale}
+```
+
+**R-sq.(adj)** generalizzazione dell'R2 usato nella regressione lineare standard, aggiustato per il numero di parametri stimati nel modello (EDF).
+
+```{r}
+summary(mod)$r.sq # adj r square
+```
+
+**Smoothing parameter selection score:** Riporta il valore del criterio che è stato minimizzato per selezionare il grado di smoothing ottimale dei termini smooth (Con i metodi REML, fREML e ML, poiché gli algoritmi di ottimizzazione tendono a minimizzare, il valore riportato è il negativo della log-likelihood penalizzata, con il metodo GCV.Cp, invece, riporta il valore del criterio GCV ).
+
+Quindi interpretazione: più è basso, meglio è per la selezione della levigatezza.
+
+```{r}
+mod$gcv.ubre   # Smoothing parameter selection score: criterio minimizzato -ML, -REML o GCV a seconda del metodo scelto 
+```
+
+**Scale estimate:** Stima della varianza residua del modello (σ²).
+
+```{r}
+mod$scale 
+# Scale estimate: sum(residuals(mod)^2) / mod$df.residual  # dfresidui=n−edf totali
+```
+
+### More fit indices
+
+**AIC & BIC**: Indice che bilancia log-likelihood (quanto bene il modello spiega i dati) e la complessità del modello (numero di parametri o, nei GAM, gli edf). È direttamente paragonabile tra modelli strutturalmente diversi che sono stimati sugli stessi dati es. y \~ s(x) *vs* y \~ s(x) + z (anche GLM vs GAM).
+
+```{r}
+AIC(mod) BIC(mod)
+```
+
+**Log-Likelihood:** restituisce la Log-Likelihood non penalizzata del modello, valutata in corrispondenza dei parametri di smoothness (λ) e dei coefficienti (β​) stimati.
+
+```{r}
+logLik(mod)
+```
+
+**Model complexity**: Gli EDF riflettono quanti parametri “liberi” servono per descrivere la curva.\
+Un polinomio di ordine 1 = 1 pendenza → EDF \~1\
+Una curva più complessa → EDF \~3–5.\
+La somma degli EDF di tutti i termini parametrici e smooth dà la complessità effettiva complessiva del modello e viene usata da AIC, BIC, R² adj, GCV / UBRE come penalizzazione contro modelli troppo complessi.
+
+```{r}
+edf_tot <- sum(mod$edf)         # Model complexity: edf complessivi dell’intero modello edf_smooth <- sum(summary(mod)$s.table[ , "edf"])  # Model complexity: solo per gli smooth 
+```
+
+## Model Comparison - Activate
+
+```{r}
+m1 <- gam(RT ~ s(TDsim), data = df, method = "ML"); 
+m2 <- gam(RT ~ s(TDsim)+s(DDsim), data = df, method = "ML");  anova.gam(m1,m2,test="F")
+```
+
+**anova.gam**: capire se un modello più complesso è significativamente migliore di uno più semplice (modelli sono annidati, stimati sugli stessi dati).
+
+**AIC comparison**: differenza AIC
+
+**gcv.ubre comparison**: confronto tra smoothing parameter selection score. Criterio minimizzato -ML, -REML o GCV a seconda del metodo scelto.
+
+Note: In general the most logically consistent method to use for deciding which terms to include in the model is to compare GCV/UBRE/ML scores for models with and without the term (REML scores should not be used to compare models with different fixed effects structures) *(Wood, 2023, Interactive term selection, mgcv manual, sezione “Interactive term selection”)*
+
+# Fixed Effects
+
+## Effetti principali
+
+![](images/clipboard-1531179696.png)
+
+Il modello include tutti gli effetti principali specificati nel primo pannello, come *smooth*, *factor* o *linear*, così come impostati nel primo pannello Fixed Effects.
+
+Per ***factor*** o ***linear covariates***, la formula in R è uguale a quella utilizzata nei GLM. La variabile categorica (Sex) come effetto principale non produce una curva distinta per ogni gruppo ma uno *shift* costante dell’intercetta tra i gruppi lungo l’intera curva di TDsim e DDsim. Le variabili continue lineari (order) aggiungono un effetto con pendenza costante che si somma all’effetto degli smooth terms.
+
+Per gli ***smooth*** si specifica nella formula `s()`. La forma della relazione è flessibile. Il termine smooth consente di modellare la relazione tra la variabile continua e l’outcome senza imporre una forma predefinita
+
+Gli smooth terms specificati via `s()` sono appropriati sia come effetti principali da soli che come effetti principali eventualmente combinati con interazioni di tipo Tensor Product: s(x) + s(z) + ti(x, z) (vedi dopo).
+
+"The single s terms *( s(X,k=10,bs="cr") )* could have been replaced by terms ti(X,k=10) *(tensor interaction)* resulting in the same model fit" (*Wood, 2017, Generalized additive models, p. 335)*.
+
+## Interazioni
+
+### Tipi di interazioni
+
+![](images/clipboard-4164911174.png)
+
+### Parametric terms
+
+Come GLM
