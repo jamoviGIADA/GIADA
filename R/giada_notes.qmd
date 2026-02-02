@@ -1,0 +1,46 @@
+---
+title: "GIADA – Developer notes / TODO"
+format: html
+editor: visual
+---
+
+============================================================
+
+This file contains internal notes, ideas, and TODOs.
+
+For collaborators only.
+
+============================================================
+
+## Dataset Visual Search
+
+```{r}
+# Pacchetti
+rm(list = ls())
+library(mgcv)
+library(visreg)
+
+load("DB_visualsearchbasic.RData")
+
+head(df)
+
+```
+
+# Panel 1 - GAM
+
+![](images/clipboard-1713107905.png)
+
+## Family
+
+Per ora focus su family = gaussian (default in mgcv, Continua \~ simmetrica )
+
+Ma considerare però eventualmente anche altre family disponibili in mgcv: Gamma (RT \> 0, asimmetrica), inverse.gaussian (RT molto asimmetrica), binomial (Binaria (0/1)), poisson (Conteggi), betar (Proporzioni (0–1)).
+
+```{r}
+formula <- RT ~ s(TDsim) + DDsim+ te(TDsim,order)+ Sex
+mod <- gam(formula, data = df,family = gaussian(link = "identity"))
+summary(mod)
+                                     
+```
+
+## 
