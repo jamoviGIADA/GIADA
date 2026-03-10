@@ -78,12 +78,14 @@ Per gli **effetti parametrici**: si può fare la tabella con il nome del paramet
 Per gli **effetti smooth**, mostrare le **componenti di varianza** stimate associate a ciascun termine smooth con **`gam.vcomp`** (più precisamente l'output da deviazione standard stimata come misura di quanto pesa quella componente: `std.dev = mod$scale / mod$sp`). Fornisce anche **intervalli di confidenza** (se la stima è effettuata tramite ML o REML).\
 
 ```{r}
-# valutare cosa fa gam.vcomp 
+# valutare gam.vcomp 
 mod <- gam(RT ~ s(DDsim)+s(TDsim)+ order+s(Participant, bs="re"), data = df,method = "REML")
-# summary(mod)
+summary(mod)
 gam.vcomp(mod, conf.lev=.95) 
 # It also provides confidence intervals, if smoothness estimation is by ML or REML.
 # R converte la wiggliness delle funzioni DDsim e TDsim in una metrica di varianza (comparabile agli effetti random).
+
+# nell'esempio sotto: La variazione nella variabile dipendente causata da DDsim è molto forte rispetto a quella causata dai Partecipanti (0.08) o dal rumore (0.44). TDsim (23.47) anche questo è un effetto molto grande, ma molta incertezza nella stima (vedi CI)
 
 ```
 
@@ -129,6 +131,12 @@ mod$gcv.ubre   # Smoothing parameter selection score: criterio minimizzato -ML, 
 ```{r}
 mod$scale 
 # Scale estimate: sum(residuals(mod)^2) / mod$df.residual  # dfresidui=n−edf totali
+
+# La radice quadrata della scale corrisponde alla deviazione standard residua: sqrt(mod$scale).
+# Nell’output di summary.gam:
+#   Scale est. = 0.2000527  -> varianza residua
+# Nell’output di gam.vcomp:
+#   scale = 0.4472725       -> deviazione standard residua
 ```
 
 ### More fit indices
@@ -156,16 +164,31 @@ edf_tot <- sum(mod$edf)         # Model complexity: edf complessivi dell’inter
 
 ## Model Comparison - Activate
 
+**anova.gam**: capire se un modello più complesso è significativamente migliore di uno più semplice (modelli sono annidati, stimati sugli stessi dati).
+
 ```{r}
 m1 <- gam(RT ~ s(TDsim), data = df, method = "ML"); 
-m2 <- gam(RT ~ s(TDsim)+s(DDsim), data = df, method = "ML");  anova.gam(m1,m2,test="F")
+m2 <- gam(RT ~ s(TDsim)+s(DDsim), data = df, method = "ML");  
+anova.gam(m1,m2,test="F")
 ```
-
-**anova.gam**: capire se un modello più complesso è significativamente migliore di uno più semplice (modelli sono annidati, stimati sugli stessi dati).
 
 **AIC comparison**: differenza AIC
 
+```{r}
+m1 <- gam(RT ~ s(TDsim), data = df, method = "ML"); 
+m2 <- gam(RT ~ s(TDsim)+s(DDsim), data = df, method = "ML");  
+AIC(m1,m2)
+AIC(m1)-AIC(m2)
+```
+
 **gcv.ubre comparison**: confronto tra smoothing parameter selection score. Criterio minimizzato -ML, -REML o GCV a seconda del metodo scelto.
+
+```{r}
+m1 <- gam(RT ~ s(TDsim), data = df, method = "ML"); 
+m2 <- gam(RT ~ s(TDsim)+s(DDsim), data = df, method = "ML");  
+m1$gcv.ubre
+m2$gcv.ubre
+```
 
 Note: In general the most logically consistent method to use for deciding which terms to include in the model is to compare GCV/UBRE/ML scores for models with and without the term (REML scores should not be used to compare models with different fixed effects structures) *(Wood, 2023, Interactive term selection, mgcv manual, sezione “Interactive term selection”)*
 
@@ -181,16 +204,48 @@ Per ***factor*** o ***linear covariates***, la formula in R è uguale a quella u
 
 Per gli ***smooth*** si specifica nella formula `s()`. La forma della relazione è flessibile. Il termine smooth consente di modellare la relazione tra la variabile continua e l’outcome senza imporre una forma predefinita
 
-Gli smooth terms specificati via `s()` sono appropriati sia come effetti principali da soli che come effetti principali eventualmente combinati con interazioni di tipo Tensor Product: s(x) + s(z) + ti(x, z) (vedi dopo).
+Nota: Gli smooth terms specificati via `s()` sono appropriati sia come effetti principali da soli che come effetti principali eventualmente combinati con interazioni di tipo Tensor Product: s(x) + s(z) + ti(x, z) (vedi dopo).
 
 "The single s terms *( s(X,k=10,bs="cr") )* could have been replaced by terms ti(X,k=10) *(tensor interaction)* resulting in the same model fit" (*Wood, 2017, Generalized additive models, p. 335)*.
+
+Esempio:
+
+```{r}
+formula <- RT ~ order + Sex
+
+# equivalente nei risultati a lm
+mod <- gam(formula, data = df);
+mod_lm <- lm(formula, data = df)
+anova(mod) 
+car::Anova(mod_lm, type = 3) 
+summary(mod) 
+summary(mod_lm)
+
+```
+
+```{r}
+
+formula <- RT ~  s(DDsim) + s(TDsim) + order + Sex
+mod <- gam(formula, data = df);
+
+# Per smooth terms sia con anova che summary riportano F test:
+
+anova(mod) # o anova.gam(mod);
+# Riporta F test per tutti i termini, paramteric e  smooth.
+# ANOVA di Tipo III, test di Wald per ciascun termine parametrico e smooth. 
+
+summary(mod) # o summary.gam(mod). 
+# Riporta F test per smooth terms + test t per parametric terms.
+```
 
 ## Interazioni
 
 ### Tipi di interazioni
 
-![](images/clipboard-4164911174.png)
+![](images/clipboard-3894797150.png)
 
-### Parametric terms
+A seconda delle variabili in interazione la formula cambia
 
-Come GLM
+### Solo smooth terms
+
+### Solo parametric terms
