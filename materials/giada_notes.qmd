@@ -204,10 +204,6 @@ Per ***factor*** o ***linear covariates***, la formula in R è uguale a quella u
 
 Per gli ***smooth*** si specifica nella formula `s()`. La forma della relazione è flessibile. Il termine smooth consente di modellare la relazione tra la variabile continua e l’outcome senza imporre una forma predefinita
 
-Nota: Gli smooth terms specificati via `s()` sono appropriati sia come effetti principali da soli che come effetti principali eventualmente combinati con interazioni di tipo Tensor Product: s(x) + s(z) + ti(x, z) (vedi dopo).
-
-"The single s terms *( s(X,k=10,bs="cr") )* could have been replaced by terms ti(X,k=10) *(tensor interaction)* resulting in the same model fit" (*Wood, 2017, Generalized additive models, p. 335)*.
-
 Esempio:
 
 ```{r}
@@ -240,12 +236,74 @@ summary(mod) # o summary.gam(mod).
 
 ## Interazioni
 
-### Tipi di interazioni
-
 ![](images/clipboard-3894797150.png)
 
 A seconda delle variabili in interazione la formula cambia
 
-### Solo smooth terms
+### Solo smooth interaction terms
 
-### Solo parametric terms
+Rilevanti: `te()` e `ti()`.\
+Altro: `t2()` alternativa di `te()` con dati sparsi distribuiti in modo non uniforme (impostabile solo tramite script).
+
+I termini basati su prodotti tensoriali (`te()` e `ti()`) sono progettati per essere **invarianti alla riscalatura lineare** dei predittori (Wood, 2006).
+
+#### A) Full Tensor Product Smooth
+
+![](images/clipboard-3233176603.png)
+
+**`te(x, z)`** Stima una superficie non lineare su 2+ variabili. **Include automaticamente effetti principali + interazione nello stesso termine** **smooth**. Puoi vedere la forma totale della superficie, ma **non puoi testare separatamente main effects e interazione.**
+
+La superficie risultante permette di stimare come i predittori si combinano in modo flessibile lungo due dimensioni. Il *tensor product smooth* `te()` è **invariante alla scala**: “The tensor product smooths are invariant to linear rescaling of covariates” ed è progettato per modellare una relazione bidimensionale quando le variabili possono avere scale diverse o richiedere basi differenti.
+
+Funziona anche con tre o più variabili, come ad esempio `te(x, z, y, k=c(5, 5, 5))` . Attenzione a esplosione dei parametri: la dimensione totale della base è il prodotto dei singoli k. Se usi k=10 per tre variabili, il modello dovrà stimare 10 \* 10 \* 10 = 1000 parametri.
+
+```{r}
+formula <- RT ~ te(TDsim, DDsim)  #te -> Un’unica superficie multidimensionale (main effects + interaction insieme)
+mod <- gam(formula, data = df, method = "REML"); 
+anova(mod); 
+summary(mod);
+
+# visualisation
+plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
+vis.gam(mod,
+  view      = c("TDsim", "DDsim"),
+  plot.type = "persp",   # "contour", "persp", "slice"
+  type      = "response",
+  n.grid    = 50,
+  too.far   = 0.1)
+```
+
+#### B) Tensor Product Interaction
+
+![](images/clipboard-4046316863.png)
+
+**`ti(x, z)`** Approccio ANOVA: **ti(x) + ti(z) + ti(x,z)** produce effetti principali e interazione non lineare ben separati. Nel termine ti(x,z) le componenti marginali vengono rimosse, così l’interazione rappresenta solo variazioni congiunte di x e z.\
+I termini ti() sono costruiti applicando vincoli di centraggio (sum-to-zero) alle basi marginali prima di costruire il prodotto tensoriale (Wood, 2017). Questo garantisce matematicamente che l'interazione ti(x, z) sia **ortogonale** agli effetti principali, permettendoti di testare se l'interazione aggiunge effettivamente valore oltre agli effetti singoli (Wood, 2006).
+
+L'uso tipico di `ti()` è per una **decomposizione ANOVA funzionale**. Ad esempio, per modellare un'interazione pura tra due covariate continue x e z, **si usa `ti(x,z)` solo dopo aver specificato separatamente gli effetti principali f1​(x) e f2​(z)** (ad esempio, con s(x) + s(z) o ti(x) + ti(z)) (Wood (2017, section 5.6.3)).
+
+La funzione `ti()` è specificamente **progettata per produrre termini di smooth (sia principali che di interazione) che escludono i termini di ordine inferiore**. Questo garantisce che ogni termine nel modello sia ben distinto dagli altri e che l'interazione `ti(TDsim, DDsim)` sia pura (cioè, non contiene tracce degli effetti principali) (R documentation).
+
+I termini `s()` (come `s(TDsim)`) sono di default soggetti a vincoli di centraggio (hanno media zero) per renderli identificabili rispetto all'intercetta del modello. Poiché l'obiettivo di **`ti()`** (creare un'interazione ortogonale) e l'obiettivo di **`s()`** (creare un effetto principale centrato) non sono in conflitto, è possibile utilizzare i termini `s()` al posto dei termini `ti()` per gli effetti principali in questa struttura (R documentation). L'uso di tutti i termini ti() `(ti(TDsim) + ti(DDsim) + ti(TDsim, DDsim))` è generalmente considerato la specifica più appropriata ma in realtà non cambia molto: "The single s terms *( s(X,k=10,bs="cr") )* could have been replaced by terms ti(X,k=10) *(tensor interaction)* resulting in the same model fit" (*Wood, 2017, Generalized additive models, p. 335)*.
+
+```{r}
+# Nel modello, ti(DDsim) e ti(TDsim) catturano le curvature individuali di ciascun predittore continuo, mentre ti(TDsim, DDsim) rappresenta la parte congiunta della relazione, cioè la variazione che emerge solo quando i due predittori vengono considerati insieme. 
+formula <- RT ~ ti(TDsim, DDsim)+ti(DDsim)+ti(TDsim) 
+
+mod <- gam(formula, data = df, method = "REML"); 
+summary(mod); 
+
+# visualisation
+plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
+vis.gam(mod,
+  view      = c("TDsim", "DDsim"),
+  plot.type = "persp",   # "contour", "persp", "slice"
+  type      = "response",
+  n.grid    = 50,
+  too.far   = 0.1)
+
+```
+
+### Solo parametric terms interactions
+
+### Smooth by parametric (Smooth-by-factor)
