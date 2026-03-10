@@ -210,11 +210,11 @@ Esempio:
 formula <- RT ~ order + Sex
 
 # equivalente nei risultati a lm
-mod <- gam(formula, data = df);
+mod_gam <- gam(formula, data = df);
 mod_lm <- lm(formula, data = df)
-anova(mod) 
+anova(mod_gam) 
 car::Anova(mod_lm, type = 3) 
-summary(mod) 
+summary(mod_gam) 
 summary(mod_lm)
 
 ```
@@ -306,4 +306,129 @@ vis.gam(mod,
 
 ### Solo parametric terms interactions
 
-### Smooth by parametric (Smooth-by-factor)
+I termini parametrici nei GAM usano la stessa sintassi dei modelli lineari.
+
+#### A) Covariate × Covariate
+
+In GAMLJ le covariate continue sono centrate alla media di default quando in interazione. Farei anche nei gam per stesse ragioni.
+
+![](images/clipboard-1257434543.png)
+
+```{r}
+
+df$DDsim_c=scale(df$DDsim,center = TRUE,scale = FALSE)
+df$TDsim_c=scale(df$TDsim,center = TRUE,scale = FALSE)
+
+formula <- RT ~ DDsim_c * TDsim_c
+mod_lm <- lm(formula, data = df)
+car::Anova(mod_lm, type = 3) 
+summary(mod_lm)
+
+mod <- gam(formula, data = df, method = "REML")
+anova(mod)
+summary(mod)
+
+```
+
+#### B) Factor × Factor
+
+In GAMLj il default per le variabili categoriche è il Simple coding: “The default coding schema is simple, which is centered to zero and compares each means with the reference category mean. The reference category is the first appearing in the variable levels”
+
+Per essere coerenti con GAMLj anche nei GAM con soli termini parametrici, conviene quindi usare contrasti centrati anche per i fattori, invece della dummy coding standard di R.
+
+Simple e dummy danno gli stessi confronti tra medie, ma quando c’è un’interazione cambiano il significato dei coefficienti degli altri termini: con simple gli effetti sono mediati sul campione, con dummy sono riferiti al gruppo di riferimento.
+
+```{r}
+df=df
+df$Sex_sc <- factor(df$Sex)
+df$condition_sc <- factor(df$condition)
+
+# GAMLj-like simple coding (centered to zero)
+contrasts(df$Sex_sc) <- contr.treatment(nlevels(df$Sex_sc)) - 1 / nlevels(df$Sex_sc)
+contrasts(df$condition_sc) <- contr.treatment(nlevels(df$condition_sc)) - 1 / nlevels(df$condition_sc)
+# contrasts(df$Sex) <- contr.treatment(nlevels(df$Sex)) # Dummy
+# contrasts(df$condition) <- contr.treatment(nlevels(df$condition))# Dummy
+
+formula <- RT ~ Sex_sc * condition_sc
+mod_lm <- lm(formula, data = df)
+car::Anova(mod_lm, type = 3)
+summary(mod_lm)
+
+mod <- gam(formula, data = df, method = "REML")
+anova(mod)
+summary(mod)
+
+contrasts(df$Sex)
+```
+
+#### C) Factor × Covariate
+
+```{r}
+formula <- RT ~ DDsim_c * condition_sc
+mod <- gam(formula, data = df, method = "REML")
+anova(mod)
+summary(mod)
+```
+
+### Smooth by parametric
+
+Non si permetterà l'inserimento di interazioni **sopra il secondo ordine** (tre termini o più) che coinvolgano variabili parametriche.
+
+#### A1) Smooth-by-factor
+
+Con by fattoriale si ottengono smooth separate per livello. Con by fattoriale, mgcv costruisce una smooth per livello e queste smooth risultano centrate.
+
+Nella specificazione del modello è\_
+
+\- **necessario includere l'effetto principale della variabile parametrica** (il fattore) per catturare le differenze di intercetta/livello medio tra gruppi. Senza il fattore parametrico il modello assumerebbe che tutti i gruppi abbiano lo stessa media nella variabile dipendente, portando a stime distorte. Il termine agisce come un'intercetta specifica per ogni gruppo, spostando la curva centrata verso l'alto o verso il basso fino al livello medio reale del gruppo.
+
+\- **non va incluso l'effetto princiale della variabie smooth** perchè Smooth-by-factor sta già chiedendo di stimare una curva completa per ogni livello del fattore e aggiungere un altro termine smooth come "effetto principale", il modello si troverebbe con informazioni per lo stesso andamento -\> collinearità.
+
+**Centrare le variabili continue o cambiare i contrasti non cambia la "morbidezza" o la forma delle curve.** L'unica cosa che cambia è l'interpretazione dell'intercetta nei parametric coefficients, ma non la sostanza del fit.
+
+```{r}
+# Case 1A: Factor by variables.
+
+# condition + s(TDsim, by = condition)
+# = differenze medie tra gruppi (termine parametrico condition)
+#   + una smooth separata di TDsim per ciascun livello di condition.
+formula <- RT ~ condition +  s(TDsim, by = condition)
+mod <- gam(formula, data = df, method = "REML");
+
+# In anova(mod):
+# - condition testa il fattore come termine parametrico complessivo i gruppi 
+#    differiscono nel livello medio di RT?) 
+# - ogni s(TDsim):conditionX testa la smooth del singolo gruppo (la curva associata 
+#    a TDsim all’interno di ciascuna condizione è diversa da zero - linea piatta?).
+anova(mod) 
+
+# In summary(mod):
+# - Parametric coefficients: 
+#   Intercept = valore medio atteso del gruppo di riferimento
+#   Coeff parametrici confrontano i gruppi condition 2 e 3 con il riferimento
+# - le smooth descrivono la forma della relazione in ciascun gruppo come sopra
+summary(mod) ;
+
+# visualisation
+plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
+
+
+# formula <- RT ~ condition_sc +  s(TDsim_c, by = condition_sc)
+# mod_c <- gam(formula, data = df, method = "REML");
+# anova(mod_c)
+# summary(mod_c)
+```
+
+```{r}
+# Nota: se si vuole che le curve abbiano stessa scorrevolezza tra livelli, usa id=1 (stesso smoothing parameter per tutti i livelli).
+
+formula <- RT ~ condition +  s(TDsim, by = condition, id=1)
+mod <- gam(formula, data = df, method = "REML");
+anova(mod)
+summary(mod)
+
+# visualisation
+plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
+```
+
+# Questo approccio è corretto solo se si trasforma Sex in un ordered factor. In quel caso: s(TDsim) diventa la curva di riferimento (es. per i Maschi), s(TDsim, by = Sex) diventa la curva che rappresenta solo la differenza tra Femmine e Maschi (Wood, 2017, p. 336); vedi sotto.
