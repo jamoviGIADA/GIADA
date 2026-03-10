@@ -12,10 +12,10 @@ For collaborators only.
 
 ============================================================
 
-## Dataset  Esempio 
+## Dataset Esempio
 
 ```{r}
-# Pacchetti
+#  Pacchetti
 rm(list = ls())
 library(mgcv)
 library(visreg)
