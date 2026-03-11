@@ -144,7 +144,8 @@ mod$scale
 **AIC & BIC**: Indice che bilancia log-likelihood (quanto bene il modello spiega i dati) e la complessità del modello (numero di parametri o, nei GAM, gli edf). È direttamente paragonabile tra modelli strutturalmente diversi che sono stimati sugli stessi dati es. y \~ s(x) *vs* y \~ s(x) + z (anche GLM vs GAM).
 
 ```{r}
-AIC(mod) BIC(mod)
+AIC(mod) 
+BIC(mod)
 ```
 
 **Log-Likelihood:** restituisce la Log-Likelihood non penalizzata del modello, valutata in corrispondenza dei parametri di smoothness (λ) e dei coefficienti (β​) stimati.
@@ -341,6 +342,7 @@ Simple e dummy danno gli stessi confronti tra medie, ma quando c’è un’inter
 ```{r}
 df=df
 df$Sex_sc <- factor(df$Sex)
+df$condition= factor(df$SetSize)
 df$condition_sc <- factor(df$condition)
 
 # GAMLj-like simple coding (centered to zero)
@@ -469,7 +471,7 @@ La base sz è progettata per una scomposizione di tipo ANOVA funzionale. Invece 
 
 Questo approccio è considerato più "naturale" rispetto ai fattori ordinati perché non richiede di scegliere un gruppo di riferimento: ogni gruppo viene confrontato con la media della popolazione.
 
-Il vincolo Sum-to-Zero "tra i livelli": In uno smooth normale `s(x)`, il vincolo è sulla variabile x (la curva ha media zero lungo l'asse x). In `bs = "sz"`, il vincolo è **tra i gruppi**: in ogni punto del predittore x, la somma delle deviazioni di tutti i livelli del fattore deve essere esattamente zero. \
+Il vincolo Sum-to-Zero "tra i livelli": In uno smooth normale `s(x)`, il vincolo è sulla variabile x (la curva ha media zero lungo l'asse x). In `bs = "sz"`, il vincolo è **tra i gruppi**: in ogni punto del predittore x, la somma delle deviazioni di tutti i livelli del fattore deve essere esattamente zero.\
 ∑f gruppo ​ (x)=0 per ogni valore di x.
 
 **Struttura del Modello:** `y ~ s(x) + s(x, fac, bs = "sz")`
@@ -498,6 +500,8 @@ Per capire quale condizione devia in modo significativo dal trend medio globale:
 
 ```{r}
 
+# metodo è l'analogo dei "test post-hoc" per le curve
+
 # Dopo un modello con bs="sz", i confronti pairwise tra livelli
 # si ottengono dal modello già stimato usando predict.gam(type="lpmatrix").
 # Si predice il modello sulla stessa griglia di x per due livelli del fattore,
@@ -505,6 +509,7 @@ Per capire quale condizione devia in modo significativo dal trend medio globale:
 # usando coef(mod) e mod$Vp.
 # In questo modo la smooth globale si annulla e il contrasto isola
 # la differenza tra le curve dei due livelli.
+#  Interpretazione  Se l'intervallo di confidenza calcolato non include lo zero per certi valori di TDsim, allora in quei punti le curve dei due gruppi sono statisticamente diverse  
 
 formula <- RT ~ s(TDsim) + s(condition, TDsim, bs = "sz")
 mod2 <- gam(formula, data = df, method = "REML")
@@ -567,53 +572,13 @@ all_diffs <- lapply(pairs, function(p) {
 names(all_diffs) <- sapply(pairs, function(p) paste0(p[1], "_vs_", p[2]))
 ```
 
-Per derivare i contrasti (differenze) tra le curve smooth di diversi gruppi senza dover rifare il modello, la tecnica del **Linear Predictor Matrix (lpmatrix)** è la più potente e flessibile (Wood, 2017).
-
-Ecco come procedere passo dopo passo per confrontare, ad esempio, la condizione "3" e la condizione "6" del tuo modello con base `sz`:
-
-1\. Che cos'è la `lpmatrix`?
-
-Quando richiedi `predict(mod2, type="lpmatrix")`, R non ti restituisce i valori predetti, ma la matrice **Xp**. Questa matrice, moltiplicata per i coefficienti del modello (β), produce il predittore lineare: η **= Xp** β (Wood, 2017; Wood et al., 2016).
-
-2\. Procedura per il calcolo della differenza
-
-Per trovare la differenza tra due gruppi, devi creare una "matrice di differenza" (Marra & Wood, 2012; Wood, 2013).
-
-1.  **Crea un grid di predizione:** Genera un data frame dove la variabile continua (`TDsim`) varia su tutto il range, ma mantieni fissa la `condition` (es. prima tutta a "3", poi tutta a "6").
-
-2.  **Ottieni le due lpmatrix:**
-
-    -   `Xp3 <- predict(mod2, newdata = data_cond3, type = "lpmatrix")`
-
-    -   `Xp6 <- predict(mod2, newdata = data_cond6, type = "lpmatrix")`
-
-3.  **Calcola la matrice di differenza:** `Xp_diff <- Xp3 - Xp6`.
-
-4.  **Stima la differenza:** `differenza_smooth <- Xp_diff %*% coef(mod2)`.
-
-3\. Calcolo dell'Incertezza (Intervalli di Confidenza)
-
-Per sapere se la differenza è significativa, devi proiettare la matrice di covarianza del modello (Vβ​) sulla tua differenza (Wood, 2017):
-
--   **Varianza della differenza:** `var_diff <- rowSums((Xp_diff %*% vcov(mod2)) * Xp_diff)`
-
--   **Errore Standard:** `se_diff <- sqrt(var_diff)`
-
-A questo punto puoi calcolare l'intervallo di confidenza al 95%: **CI = differenza_smooth +/- 1.96 \* se_diff** (Marra & Wood, 2012).
-
-4\. Interpretazione
-
-Se l'intervallo di confidenza calcolato **non include lo zero** per certi valori di `TDsim`, allora in quei punti le curve dei due gruppi sono statisticamente diverse (Wood, 2013; Wood et al., 2016).
-
-Questo metodo è l'analogo dei "test post-hoc" per le curve e permette di identificare con precisione *dove* i gruppi divergono lungo l'asse X (Wood, 2017).
-
 #### C) Random wiggly curves
 
 **bs = "fs"** Tratta le curve come interamente casuali e non obbliga il modello a dare priorità a un effetto principale globale.
 
-Questo approccio produce una curva smooth per ciascun livello di un singolo fattore, trattando le curve come **interamente casuali**. Ciò significa che, in linea di principio, è possibile costruire un modello con un **effetto principale** più **deviazioni smooth specifiche per ciascun livello del fattore** rispetto a tale effetto. Tuttavia, il modello **non è vincolato a far sì che l’effetto principale spieghi la maggior parte della variabilità**, come invece avviene con l’approccio **"sz"**.
+Produce una curva smooth per ciascun livello di un singolo fattore, trattando le curve come **interamente casuali**. Ciò significa che, in linea di principio, è possibile costruire un modello con un **effetto principale** più **deviazioni smooth specifiche per ciascun livello del fattore** rispetto a tale effetto. Tuttavia, il modello **non è vincolato a far sì che l’effetto principale spieghi la maggior parte della variabilità**, come invece avviene con l’approccio **"sz"**.
 
-Questa classe produce una funzione liscia per ciascun livello di un singolo fattore. All’interno di una formula GAM questo si ottiene con qualcosa del tipo `s(x, fac, bs = "fs")`. I termini sono **completamente penalizzati**, con penalità separate su ciascuna componente dello **spazio nullo**; per questo motivo **non sono centrati** (cioè non è imposto alcun vincolo di somma a zero).
+`s(x, fac, bs = "fs")`.
 
 Infatti, normalmente, nei GAM, le curve vengono "centrate": il modello le obbliga ad avere una media pari a zero per non "litigare" con l'intercetta globale del modello. **Con bs = "fs":** Questa restrizione viene rimossa. Ogni curva può avere la propria altezza (intercetta) e la propria pendenza.
 
@@ -623,17 +588,19 @@ In generale, si usa bs = "fs" per modellare molte curve individuali (una per ogn
 
 "Random Curve" : Con bs = "fs", il modello permette a ogni livello del fattore di avere una forma diversa. È come dare a ogni soggetto una "morbidezza" (wiggliness) che però segue una regola comune a tutto il gruppo (Wood, 2017).
 
-Ecco le caratteristiche principali:\
+Caratteristiche principali:\
 • **Efficienza con molti gruppi**: È progettato per gestire un numero elevato di livelli (es. 200 pazienti) in modo molto più veloce rispetto all'argomento `by = fattore`.\
 • **Wiggliness condivisa**: Tutti i gruppi condividono lo stesso parametro di smoothing (lambda). Questo evita che i gruppi con pochi dati abbiano curve assurde (overfitting).\
 • **Intercetta inclusa**: A differenza degli smooth normali, i termini `fs` non sono "centrati" (non hanno il vincolo di somma-a-zero). Questo significa che il termine modella contemporaneamente sia l'intercetta casuale che la pendenza casuale.\
 • **Penalizzazione totale**: Ogni componente della curva è penalizzata. Se non c'è abbastanza segnale, la curva casuale viene spinta verso lo zero o verso una linea piatta.
 
-Scrivere `s(Trial, Participant, bs="fs")` è come dire al software:
-
-> *"Voglio che ogni partecipante abbia la sua curva personale di apprendimento. Questa curva può partire dove vuole, inclinarsi come vuole e curvarsi come vuole. TUTTAVIA, tratta queste curve come effetti casuali: assumi che siano tutte variazioni attorno a una forma comune (o zero) e penalizza (schiaccia verso il basso) qualsiasi deviazione estrema che non sia fortemente supportata dai dati."*
-
 ```{r}
+# 1. Intercetta Casuale: Ogni soggetto può partire da un valore diverso (es. un paziente ha una risposta base più alta di un altro).
+# 2. Pendenza Casuale: Ogni soggetto può avere una reazione più o meno forte.
+# 3. Wiggliness Casuale: Ogni soggetto può avere una curva con una forma leggermente diversa (più o meno "nervosa").
+
+#Con bs="fs", aggiungere un main smooth s(x) è formalmente possibile, ma il modello non impone che l’andamento globale venga spiegato prioritariamente dal main effect: le smooth per livello possono assorbire anche componenti di livello e pendenza, rendendo l’interpretazione meno separabile.
+
 formula <- RT ~ s(TDsim,Participant,  bs="fs", k=5) 
 mod <- gam(formula, data = df, method = "REML");
 anova(mod)
@@ -641,12 +608,7 @@ summary(mod)
 gam.vcomp(mod)
 plot(mod)
 
-#Quando usi questa specifica, il modello compie tre azioni in una:
-# 1. Intercetta Casuale: Ogni soggetto può partire da un valore diverso (es. un paziente ha una risposta base più alta di un altro).
-# 2. Pendenza Casuale: Ogni soggetto può avere una reazione più o meno forte.
-# 3. Wiggliness Casuale: Ogni soggetto può avere una curva con una forma leggermente diversa (più o meno "nervosa").
 
-#Con bs="fs", aggiungere un main smooth s(x) è formalmente possibile, ma il modello non impone che l’andamento globale venga spiegato prioritariamente dal main effect: le smooth per livello possono assorbire anche componenti di livello e pendenza, rendendo l’interpretazione meno separabile.
 ```
 
 # Random effects nei GAM
@@ -655,13 +617,20 @@ plot(mod)
 
 ![](images/clipboard-1049004621.png)
 
-```{r}
-formula <- RT ~ s(TDsim) + s(Participant, bs = "re")  # bs = base spline è costruita per funzionare come un random intercept ("re" random effects). 
-mod <- gam(formula, data = df, method = "REML"); summary(mod); plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
-```
-
 Il termine s(TDsim) stima una curva unica che descrive come cambia l’outcome al variare della variabile continua, uguale per tutti i partecipanti. Il termine s(Participant, bs = "re") introduce un random effect che agisce come un random intercept: a ciascun soggetto è assegnata una deviazione dal livello medio generale, in modo molto simile a quanto si ottiene con (1 \| Participant) in un linear mixed model. Questo permette al modello di catturare differenze stabili tra soggetti (alcuni più veloci, altri più lenti in generale) senza modificare la forma della curva non lineare comune.
 
-![](images/clipboard-2225656687.png)
+Random slope:
 
-s(A, B, bs="re") vs. s(A, by=B, bs="re"):     ◦ Nel caso di bs="re" (effetti casuali parametrici), s(TDsim, Participant, bs="re") e s(TDsim, by=Participant, bs="re") sono matematicamente equivalenti e producono entrambi pendenze casuali non correlate, sebbene la sintassi by sia spesso preferita per chiarezza quando si definiscono random slopes
+`s(A, B, bs="re") vs. s(A, by=B, bs="re")`
+
+Nel caso di bs="re" (effetti casuali parametrici), s(TDsim, Participant, bs="re") e s(TDsim, by=Participant, bs="re") sono matematicamente equivalenti e producono entrambi pendenze casuali non correlate, sebbene la sintassi by sia spesso preferita per chiarezza quando si definiscono random slopes.
+
+```{r}
+# random intercept Equivalente LMM (1 | Participant)
+formula <- RT ~ s(TDsim) + s(Participant, bs = "re")  # base spline "re" random effects. 
+mod <- gam(formula, data = df, method = "REML"); summary(mod); plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
+
+# RT ~ ... + x + s(Participant, x, bs = "re") ← Modellare pendenze diverse per x tra soggetti. Random slope (se il fixed term è lineare) Equivalente LMM (x | Participant)
+formula <- RT ~ s(TDsim) + s(TDsim,Participant, bs = "re")  
+mod <- gam(formula, data = df, method = "REML"); summary(mod); plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
+```
