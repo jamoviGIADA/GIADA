@@ -613,22 +613,26 @@ plot(mod)
 
 # Random effects nei GAM
 
-### 1) Random intercept semplici
+### 1) Random intercept 
 
 ![](images/clipboard-1049004621.png)
 
 Il termine s(TDsim) stima una curva unica che descrive come cambia l’outcome al variare della variabile continua, uguale per tutti i partecipanti. Il termine s(Participant, bs = "re") introduce un random effect che agisce come un random intercept: a ciascun soggetto è assegnata una deviazione dal livello medio generale, in modo molto simile a quanto si ottiene con (1 \| Participant) in un linear mixed model. Questo permette al modello di catturare differenze stabili tra soggetti (alcuni più veloci, altri più lenti in generale) senza modificare la forma della curva non lineare comune.
 
-Random slope:
+```{r}
+# random intercept Equivalente LMM (1 | Participant)
+formula <- RT ~ s(TDsim) + s(Participant, bs = "re")  # base spline "re" random effects. 
+mod <- gam(formula, data = df, method = "REML"); summary(mod); plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
+
+```
+
+### 2) Random slope
 
 `s(A, B, bs="re") vs. s(A, by=B, bs="re")`
 
 Nel caso di bs="re" (effetti casuali parametrici), s(TDsim, Participant, bs="re") e s(TDsim, by=Participant, bs="re") sono matematicamente equivalenti e producono entrambi pendenze casuali non correlate, sebbene la sintassi by sia spesso preferita per chiarezza quando si definiscono random slopes.
 
 ```{r}
-# random intercept Equivalente LMM (1 | Participant)
-formula <- RT ~ s(TDsim) + s(Participant, bs = "re")  # base spline "re" random effects. 
-mod <- gam(formula, data = df, method = "REML"); summary(mod); plot.gam(mod, pages = 1,  all.terms = TRUE, residuals = TRUE, shade = TRUE)
 
 # RT ~ ... + x + s(Participant, x, bs = "re") ← Modellare pendenze diverse per x tra soggetti. Random slope (se il fixed term è lineare) Equivalente LMM (x | Participant)
 formula <- RT ~ s(TDsim) + s(TDsim,Participant, bs = "re")  
